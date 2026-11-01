@@ -22,4 +22,5 @@ export type View = {
   completed: Roads;
   count: number;
   revision: number;
+  warning?: string;
 };

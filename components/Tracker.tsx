@@ -1,24 +1,22 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import type { Session } from "@supabase/supabase-js";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
-  ArrowRight,
   ArrowUpRight,
   Check,
   CheckCheck,
+  Download,
+  HardDrive,
   HelpCircle,
   LoaderCircle,
-  LogOut,
-  MapPin,
-  ShieldCheck,
   Undo2,
+  Upload,
   Wrench,
   X,
 } from "lucide-react";
 import Search, { type Place } from "./Search";
-import { configured, supabase, workspace } from "../lib/supabase";
 import { api } from "../lib/api";
+import { MAX_BACKUP_BYTES } from "../lib/backup";
 import { TrackerStore } from "../lib/tracker-store";
 const RoadMap = dynamic(() => import("./RoadMap"), {
   ssr: false,
@@ -45,246 +43,9 @@ export function Brand() {
   );
 }
 export default function Tracker() {
-  const [session, setSession] = useState<Session | null>(null),
-    [checking, setChecking] = useState(true),
-    [member, setMember] = useState(false),
-    [authError, setAuthError] = useState("");
-  useEffect(() => {
-    if (!supabase) {
-      setChecking(false);
-      return;
-    }
-    let alive = true;
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (alive) {
-        setSession(data.session);
-        if (error) setAuthError(error.message);
-        setChecking(false);
-      }
-    });
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next);
-      setMember(false);
-    });
-    return () => {
-      alive = false;
-      subscription.unsubscribe();
-    };
-  }, []);
-  useEffect(() => {
-    if (!session) {
-      setMember(false);
-      return;
-    }
-    let alive = true;
-    setChecking(true);
-    setAuthError("");
-    api
-      .membership()
-      .then((allowed) => {
-        if (alive) {
-          setMember(allowed);
-          if (!allowed)
-            setAuthError(
-              "Your account is not a member of the SwiftFix Tech workspace. Ask your administrator to grant access.",
-            );
-        }
-      })
-      .catch((e) => {
-        if (alive) setAuthError(e.message);
-      })
-      .finally(() => {
-        if (alive) setChecking(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [session]);
-  if (checking)
-    return (
-      <div className="auth-page">
-        <Brand />
-        <p className="auth-loading">
-          <LoaderCircle className="spin" size={20} />
-          Checking secure access…
-        </p>
-      </div>
-    );
-  if (session && member && configured)
-    return (
-      <Workspace
-        key={session.user.id}
-        email={session.user.email || "Team member"}
-      />
-    );
-  return <SignIn signedIn={!!session} error={authError} />;
+  return <Workspace />;
 }
-function SignIn({ signedIn, error }: { signedIn: boolean; error: string }) {
-  const [email, setEmail] = useState(""),
-    [sent, setSent] = useState(false),
-    [busy, setBusy] = useState(false),
-    [failure, setFailure] = useState("");
-  return (
-    <div className="auth-page">
-      <header>
-        <Brand />
-        <span className="private-label">
-          <ShieldCheck size={15} />
-          Private team workspace
-        </span>
-      </header>
-      <div className="auth-grid">
-        <section className="auth-copy">
-          <div className="eyebrow">
-            <span className="blue-dot" />
-            SWIFTFIX TECH · UNITED KINGDOM
-          </div>
-          <h1>
-            A little blue.
-            <br />A lot of ground
-            <br />
-            <span>covered.</span>
-          </h1>
-          <p>
-            Your team’s leaflet rounds, all on one map.
-            <br />
-            Mark a road, keep your place, pick up where you left off.
-          </p>
-          <div className="auth-proof">
-            <span>
-              <CheckCheck size={18} />
-              Shared across your team
-            </span>
-            <span>
-              <ShieldCheck size={18} />
-              Automatically saved
-            </span>
-          </div>
-          <div className="auth-map-art" aria-hidden="true">
-            <div className="art-road r1" />
-            <div className="art-road r2" />
-            <div className="art-road r3" />
-            <div className="art-road r4" />
-            <span className="art-pin">
-              <MapPin size={27} />
-            </span>
-            <span className="art-label">Every section counts.</span>
-          </div>
-        </section>
-        <section className="signin-card">
-          <div className="signin-icon">
-            <MapPin size={26} />
-          </div>
-          <h2>
-            {!configured
-              ? "Connect your workspace"
-              : signedIn
-                ? "Workspace access"
-                : "Welcome back"}
-          </h2>
-          <p>
-            {!configured
-              ? "Finish the service setup to open your private tracking map."
-              : signedIn
-                ? "This map is available to authorised SwiftFix Tech staff."
-                : "Sign in to your SwiftFix Tech workspace. We’ll email you a secure sign-in link."}
-          </p>
-          {!configured ? (
-            <div className="setup-note">
-              <strong>Service configuration needed</strong>
-              <p>
-                Add the Supabase URL, publishable key and MapTiler key to your
-                environment. Apply the SQL migration, import UK roads, and add
-                staff membership using the included README.
-              </p>
-              <small>
-                No tracking data is stored until Supabase is connected.
-              </small>
-            </div>
-          ) : signedIn ? (
-            <button
-              className="primary-button"
-              onClick={() => supabase?.auth.signOut()}
-            >
-              Sign out
-            </button>
-          ) : sent ? (
-            <div className="email-sent" role="status">
-              <CheckCheck size={25} />
-              <strong>Check your inbox</strong>
-              <p>
-                If this email is registered, a sign-in link is on its way to{" "}
-                {email}.
-              </p>
-              <button onClick={() => setSent(false)}>Use another email</button>
-            </div>
-          ) : (
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setBusy(true);
-                setFailure("");
-                const { error } = await supabase!.auth.signInWithOtp({
-                  email,
-                  options: {
-                    shouldCreateUser: false,
-                    emailRedirectTo: window.location.origin,
-                  },
-                });
-                setBusy(false);
-                if (error) setFailure(error.message);
-                else setSent(true);
-              }}
-            >
-              <label htmlFor="email">Work email</label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@swiftfixtech.co.uk"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-              <button className="primary-button" disabled={busy}>
-                {busy ? (
-                  <LoaderCircle className="spin" size={18} />
-                ) : (
-                  <>
-                    Send sign-in link
-                    <ArrowRight size={18} />
-                  </>
-                )}
-              </button>
-            </form>
-          )}
-          {(failure || error) && (
-            <p className="form-error" role="alert">
-              {failure || error}
-            </p>
-          )}
-          <div className="signin-foot">
-            <ShieldCheck size={15} />
-            Invite-only access. Your team’s map stays private.
-          </div>
-        </section>
-      </div>
-      <footer className="auth-footer">
-        <span>© {new Date().getFullYear()} SwiftFix Tech</span>
-        <span>One team. Every road.</span>
-      </footer>
-    </div>
-  );
-}
-export function Workspace({
-  email,
-  store: provided,
-}: {
-  email: string;
-  store?: TrackerStore;
-}) {
+export function Workspace({ store: provided }: { store?: TrackerStore }) {
   const [store] = useState(() => provided || new TrackerStore(api));
   const state = useSyncExternalStore(
     store.subscribe,
@@ -293,47 +54,95 @@ export function Workspace({
   );
   const [place, setPlace] = useState<Place | null>(null),
     [help, setHelp] = useState(false),
-    [connected, setConnected] = useState(true);
+    [online, setOnline] = useState(true),
+    [backupBusy, setBackupBusy] = useState(false),
+    [message, setMessage] = useState(""),
+    [backupError, setBackupError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    const offline = () => setConnected(false),
-      online = () => {
-        setConnected(true);
-        void store.refresh();
-      };
-    setConnected(navigator.onLine);
-    window.addEventListener("offline", offline);
-    window.addEventListener("online", online);
+    void store.load([-0.18, 51.57, -0.15, 51.6], 13);
     const refresh = () => {
       if (document.visibilityState === "visible") void store.refresh();
     };
+    const network = () => {
+      setOnline(navigator.onLine);
+      refresh();
+    };
+    setOnline(navigator.onLine);
     document.addEventListener("visibilitychange", refresh);
-    const timer = setInterval(refresh, 30_000);
-    const channel = supabase
-      ?.channel(`workspace:${workspace}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "workspaces",
-          filter: `id=eq.${workspace}`,
-        },
-        refresh,
-      )
-      .subscribe();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", network);
+    window.addEventListener("offline", network);
+    const unsubscribe = api.subscribe(refresh);
     return () => {
-      window.removeEventListener("offline", offline);
-      window.removeEventListener("online", online);
+      unsubscribe();
       document.removeEventListener("visibilitychange", refresh);
-      clearInterval(timer);
-      if (channel) void supabase?.removeChannel(channel);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", network);
+      window.removeEventListener("offline", network);
     };
   }, [store]);
   useEffect(() => {
     if (!state.notice) return;
-    const t = setTimeout(store.dismiss, 3500);
-    return () => clearTimeout(t);
+    const timer = setTimeout(store.dismiss, 3500);
+    return () => clearTimeout(timer);
   }, [state.notice, store]);
+  async function exportBackup() {
+    setBackupBusy(true);
+    setBackupError("");
+    setMessage("");
+    try {
+      await store.settled();
+      const backup = await api.exportBackup(),
+        blob = new Blob([JSON.stringify(backup, null, 2)], {
+          type: "application/json",
+        });
+      const url = URL.createObjectURL(blob),
+        link = document.createElement("a");
+      link.href = url;
+      link.download = `swiftfix-leaflets-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage(
+        `Backup downloaded: ${backup.roads.length.toLocaleString("en-GB")} completed road sections.`,
+      );
+    } catch (error) {
+      setBackupError(
+        error instanceof Error ? error.message : "Could not export backup.",
+      );
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+  async function importBackup(file: File) {
+    setBackupBusy(true);
+    setBackupError("");
+    setMessage("");
+    try {
+      if (file.size > MAX_BACKUP_BYTES)
+        throw new Error("Backup exceeds the 50 MiB limit.");
+      const text = await file.text();
+      await store.settled();
+      const result = await api.importBackup(text);
+      store.clearUndo();
+      await store.refresh();
+      setMessage(
+        `Imported ${result.added} road sections. Skipped ${result.skipped} duplicates. Existing roads kept.`,
+      );
+    } catch (error) {
+      setBackupError(
+        error instanceof Error
+          ? error.message
+          : "Could not import backup. No changes were saved.",
+      );
+    } finally {
+      setBackupBusy(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+  const error = backupError || state.error;
   return (
     <div className="workspace">
       <header className="topbar">
@@ -355,52 +164,79 @@ export function Workspace({
             <span>Completed road sections</span>
           </div>
         </div>
-        <button
-          className="avatar"
-          title={`${email} · Sign out`}
-          aria-label="Sign out"
-          onClick={() => supabase?.auth.signOut()}
-        >
-          {email[0].toUpperCase()}
-          <LogOut size={12} />
-        </button>
       </header>
+      <div className="storage-warning" role="note">
+        <HardDrive size={15} />
+        <span>
+          Saved only in this browser. Clearing browser data can erase progress.
+          Other devices and browsers do not sync automatically. Export regular
+          backups.
+        </span>
+      </div>
       <div className="map-toolbar">
         <div className="workspace-indicator">
           <span className="online-dot" />
-          SwiftFix team workspace<span className="shared-tag">Shared map</span>
-        </div>
-        <div className="toolbar-actions">
-          <span className={`save-state ${!connected ? "offline" : ""}`}>
-            {!connected ? (
-              "Offline"
-            ) : state.pending ? (
+          This browser<span className="shared-tag">Local storage</span>
+          <span className="save-state">
+            {state.pending ? (
               <>
                 <LoaderCircle className="spin" size={13} />
-                Saving {state.pending}…
+                Saving…
               </>
-            ) : state.error ? (
+            ) : error ? (
               "Attention needed"
+            ) : backupBusy ? (
+              "Processing backup…"
             ) : state.loading ? (
-              "Syncing map…"
+              "Loading…"
             ) : (
               <>
                 <Check size={14} />
-                All changes saved
+                Saved locally
               </>
             )}
+            {!online && " · Map offline"}
           </span>
-          <span className="toolbar-divider" />
+        </div>
+        <div className="toolbar-actions">
           <button
-            disabled={!state.undo || state.pending > 0}
+            disabled={!state.undo || state.pending > 0 || backupBusy}
             onClick={store.undo}
             title="Undo your most recent change"
           >
             <Undo2 size={16} />
             Undo
           </button>
+          <span className="toolbar-divider" />
           <button
-            className={help ? "help-button selected" : "help-button"}
+            disabled={backupBusy}
+            onClick={() => void exportBackup()}
+            title="Download all completed roads"
+          >
+            <Download size={16} />
+            Export Backup
+          </button>
+          <button
+            disabled={backupBusy}
+            onClick={() => fileInput.current?.click()}
+            title="Merge a JSON backup; existing roads are kept"
+          >
+            <Upload size={16} />
+            Import Backup
+          </button>
+          <input
+            ref={fileInput}
+            className="visually-hidden"
+            type="file"
+            accept=".json,application/json"
+            aria-label="Import backup file"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void importBackup(file);
+            }}
+          />
+          <button
+            className="help-button"
             aria-label="How to use the map"
             onClick={() => setHelp(!help)}
           >
@@ -415,7 +251,7 @@ export function Workspace({
         loading={state.loading}
         onView={(b, z) => void store.load(b, z)}
         onMark={(r, c) => {
-          if (connected) void store.mark(r, c);
+          if (!backupBusy) void store.mark(r, c);
         }}
       />
       <footer className="map-footer">
@@ -454,35 +290,46 @@ export function Workspace({
           <h2>Make your mark.</h2>
           <p>
             <strong>1. Find your area</strong>Search a UK postcode, street or
-            town. Zoom in until individual road sections can be selected.
+            town. Zoom in to select individual road sections.
           </p>
           <p>
             <strong>2. Mark a section</strong>Click or tap a road. Blue means
-            your team has delivered leaflets there.
+            leaflets have been delivered there.
           </p>
           <p>
             <strong>3. Made a mistake?</strong>Right-click a blue road, or hold
-            it on mobile, then choose Remove Highlight. You can also use Undo.
+            it on mobile, then choose Remove Highlight. Undo also saves the
+            reverse change.
+          </p>
+          <p>
+            <strong>4. Keep a backup</strong>Export Backup downloads every
+            completed section and its geometry. Import Backup merges a saved
+            file, skips existing IDs and rejects invalid or conflicting data.
           </p>
           <div className="help-note">
-            <ShieldCheck size={18} />
-            Every change saves to your shared team workspace.
+            <HardDrive size={18} />
+            Progress is stored in IndexedDB on this browser and device. Export a
+            backup before clearing browser data or changing devices.
           </div>
         </aside>
       )}
-      {(state.error || state.notice || !connected) && (
+      {(error || state.notice || message) && (
         <div
-          className={`toast ${state.error || !connected ? "toast-error" : ""}`}
-          role={state.error ? "alert" : "status"}
+          className={`toast ${error ? "toast-error" : ""}`}
+          role={error ? "alert" : "status"}
         >
-          {state.error ||
-            (!connected
-              ? "You’re offline. Reconnect before marking roads."
-              : state.notice)}
-          {state.error && (
+          {error || message || state.notice}
+          {state.error && !backupError && (
             <button onClick={() => void store.refresh()}>Retry</button>
           )}
-          <button aria-label="Dismiss notification" onClick={store.dismiss}>
+          <button
+            aria-label="Dismiss notification"
+            onClick={() => {
+              store.dismiss();
+              setBackupError("");
+              setMessage("");
+            }}
+          >
             <X size={16} />
           </button>
         </div>

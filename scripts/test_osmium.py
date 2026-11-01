@@ -7,7 +7,7 @@ import subprocess
 import sys
 import json
 
-AVAILABLE = importlib.util.find_spec('osmium') is not None and importlib.util.find_spec('psycopg') is not None
+AVAILABLE = importlib.util.find_spec('osmium') is not None
 
 
 @unittest.skipUnless(AVAILABLE, 'Install scripts/requirements.txt for the actual OSM parser test')

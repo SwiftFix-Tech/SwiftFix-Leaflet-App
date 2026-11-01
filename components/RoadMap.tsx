@@ -53,8 +53,9 @@ export default function RoadMap({
     [menu, setMenu] = useState<Menu | null>(null),
     [mapError, setMapError] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  const mapKey = process.env.NEXT_PUBLIC_MAPTILER_KEY;
   useEffect(() => {
-    if (!host.current) return;
+    if (!host.current || !mapKey) return;
     let alive = true;
     const press = new LongPress();
     let suppressClickUntil = 0;
@@ -288,9 +289,9 @@ export default function RoadMap({
           [place.bbox[0], place.bbox[1]],
           [place.bbox[2], place.bbox[3]],
         ],
-        { padding: 70, maxZoom: 17 },
+        { padding: 70, maxZoom: 17, duration: 1200 },
       );
-    else m.flyTo({ center: place.center, zoom: 16 });
+    else m.flyTo({ center: place.center, zoom: 16, duration: 1200 });
   }, [place, ready]);
   useEffect(() => {
     if (!menu) return;
@@ -311,6 +312,16 @@ export default function RoadMap({
   return (
     <main className="map-shell" aria-label="UK leaflet distribution map">
       <div className="map-canvas" ref={host} />
+      {!mapKey && (
+        <div className="map-setup" role="status">
+          <MapPin size={26} />
+          <strong>Add your MapTiler key to open the UK map</strong>
+          <p>
+            Set NEXT_PUBLIC_MAPTILER_KEY and redeploy. Local backup and restore
+            are available here.
+          </p>
+        </div>
+      )}
       <div className="location-chip">
         <MapPin size={15} />
         <span>
@@ -337,7 +348,9 @@ export default function RoadMap({
         <button
           aria-label="Re-centre on East Finchley"
           title="Re-centre on East Finchley"
-          onClick={() => map.current?.flyTo({ center: HOME, zoom: 15 })}
+          onClick={() =>
+            map.current?.flyTo({ center: HOME, zoom: 15, duration: 1000 })
+          }
         >
           <Crosshair size={20} />
         </button>

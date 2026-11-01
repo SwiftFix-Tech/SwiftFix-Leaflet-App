@@ -1,23 +1,14 @@
 # SwiftFix Tech — UK Leaflet Tracker
 
-A private, shared map for recording leaflet delivery. Click/tap a road section to mark it **#1683FF**. Right-click/hold a highlighted section to remove it. Every mutation is saved automatically to Supabase. Undo reverses the database mutation.
+This updates the existing Next.js/MapLibre app to store progress in **IndexedDB in your browser**. Open the map, click or tap a road section to mark it **#1683FF**, and right-click or hold a highlighted section to remove it. Changes and Undo save automatically.
 
-## What is included
+There is no sign-in, server database, shared workspace or cloud synchronisation. **Clearing browser/site data, private browsing cleanup, storage eviction, or switching browser/device/origin can make progress unavailable. Export regular backups.** The app shows this warning permanently.
 
-- Next.js App Router, React, TypeScript and Tailwind; responsive map-first interface.
-- MapLibre GL JS with a MapTiler streets basemap and UK address/postcode search.
-- Independent, real OSM road centreline geometries imported into Supabase PostGIS. Complete sections are picked by screen-space distance; curves are never replaced by arbitrary straight lines.
-- Junction-based segments with an additional approximately 250 m split at **existing** source nodes. Source ways, shared nodes, loops and roundabouts retain their shape. A sparse source edge can be longer than 250 m.
-- Invite-only Supabase sign-in and one shared workspace. RLS protects reads; membership-checked database functions control writes. Browser code has no service-role key.
-- Optimistic updates, serialized writes, duplicate prevention, failure rollback, revision-checked Undo, spatial loading, keyset pages, bounded viewport caching and global count.
-- Realtime workspace invalidation, foreground refresh every 30 seconds, and refresh on reconnect/returning to the tab.
-- SQL migration, import/update tools, automated tests and GitHub Actions checks.
+Records from the previous server-backed edition are not automatically copied into a browser. If you used it with live data, preserve an export before decommissioning it and convert that export to the documented JSON backup format for import. This version never contacts the former database.
 
-**External setup is required.** No Supabase project, map subscription, staff accounts, hosted UK dataset, GitHub remote or Vercel deployment is created by the source code. Unconfigured installations show a setup screen; they do not simulate a working private map. No live-service validation is claimed without credentials. See [verification](docs/VERIFICATION.md).
+## Local setup
 
-## 1. Install locally
-
-Use Node.js **24 LTS**, pnpm **11.25.0**, Python 3.12+ for import tooling, and a Supabase project with enough Postgres storage for the UK road network.
+Use Node.js 24 LTS and pnpm 11.25.0:
 
 ```sh
 corepack enable
@@ -26,111 +17,95 @@ pnpm install --frozen-lockfile
 cp .env.example .env.local
 ```
 
-On PowerShell use `Copy-Item .env.example .env.local`. Install pnpm separately if your Node distribution does not include Corepack.
+On PowerShell use `Copy-Item .env.example .env.local` instead of `cp`.
 
-Fill these public browser values in `.env.local`:
+Only one environment variable is needed:
 
-| Variable | Source |
-| --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable API key; the legacy anon key also works |
-| `NEXT_PUBLIC_MAPTILER_KEY` | MapTiler Cloud key for maps and geocoding |
-| `NEXT_PUBLIC_WORKSPACE_ID` | Keep the UUID seeded in the migration |
+```dotenv
+NEXT_PUBLIC_MAPTILER_KEY=your_maptiler_browser_key
+```
 
-`DATABASE_URL` is an **import/admin machine secret only**. It is never accessed by Next.js and must never have a `NEXT_PUBLIC_` prefix. This app needs no Google Maps key and no Supabase service-role key.
+Use a MapTiler plan permitting commercial maps/geocoding usage. Restrict the public key to your production/custom-domain and development origins. The basemap, UK postcode/address search, map dragging, zoom and East Finchley re-centre are unchanged. Google keys and database credentials are unnecessary.
 
 ```sh
 pnpm dev
 ```
 
-Open the local URL printed by Next.js. A production run uses `pnpm build` then `pnpm start`.
+The map initially opens in East Finchley and can navigate anywhere in England, Scotland, Wales and Northern Ireland. Progress belongs to the **exact origin** used, including protocol, hostname and port. A Vercel preview URL and a custom domain have separate browser storage. Export/import to transfer progress between them.
 
-## 2. Configure Supabase
+## Selectable road geometry: static assets, no database
 
-1. Create a Supabase project in an appropriate UK/European region. Plan storage and backups for a national dataset; a small free database is not an adequate production capacity assumption. The importer logs the actual segment count. Budget storage and index space using a test import before launch.
-2. Apply `supabase/migrations/001_tracker.sql` with the Supabase SQL editor as project owner, or `supabase db push` after linking with the Supabase CLI. It enables PostGIS in `extensions`, seeds the SwiftFix workspace, creates the tables, functions, indexes, RLS policies and Realtime publication. If PostGIS is already installed elsewhere, align its schema before running the migration.
-3. In Authentication, disable **Allow new users to sign up**. Enable email magic-link sign-in; configure a production SMTP provider and rate limits.
-4. Set **Site URL** to your deployed HTTPS origin. Add that same origin and your local development origin to the redirect allowlist. Add specific preview origins only when you need preview sign-in. The browser supplies its current origin as the magic-link return URL; Supabase must explicitly allow it.
-5. Create authorised users through Supabase's admin interface. In the SQL editor add each existing user's UUID to the shared workspace:
+The original application served independent OSM road geometries through its database. Those geometries now live in compressed, versioned static files under `public/roads`. They are fetched by visible area at street zoom (14+), cached, and deduplicated using stable segment IDs. The application never downloads the entire UK network into the browser or extracts roads from MapTiler's licensed basemap tiles.
 
-```sql
-insert into public.workspace_members (workspace_id, user_id)
-values ('5c7c15a9-3757-4c87-85d3-a5d671642f36', 'STAFF_AUTH_USER_UUID')
-on conflict do nothing;
-```
+**This source repository does not contain the full UK road extract.** Generate/deploy the road assets once before using new-road selection. Without them the MapTiler basemap/search still work and existing saved geometry/backups remain available, but the app reports that selectable road data is not installed. There is no simulated data or borough-only fallback.
 
-Use the admin interface to create staff accounts before the app sends their requested sign-in link. There is no client-side membership creation or self-registration. All staff use the **same workspace UUID**. Removing a membership revokes database access even if their authentication token has not expired. Read access and database execution both enforce membership; merely hiding the map is not the security boundary.
-
-The `completed_roads.user_id` records the staff member who marked a section. Uniqueness is `(workspace_id, road_segment_id)`, so delivery is shared across employees. Saved rows include the immutable dataset reference and a full geometry snapshot.
-
-## 3. Load real UK roads
-
-Read [data licensing and architecture](docs/ARCHITECTURE.md) first. Obtain a dated **United Kingdom** PBF from [Geofabrik](https://download.geofabrik.de/europe/united-kingdom.html). This includes England, Scotland, Wales and Northern Ireland. Do not substitute the Great Britain-only extract.
-
-Run on a provisioned import machine, outside Vercel. Allow hours, fast local scratch storage, reliable connectivity and space for the PBF, disk location cache, junction SQLite database, Postgres data, indexes and transaction WAL. Do a capacity measurement on your chosen release. The full UK import is deliberately not run as a serverless request.
+1. Download a pinned **United Kingdom** `.osm.pbf` from [Geofabrik](https://download.geofabrik.de/europe/united-kingdom.html). The UK extract includes Northern Ireland; a Great Britain-only extract does not.
+2. On a provisioned import machine, install Python 3.12+ and the generator dependency:
 
 ```sh
 python -m venv .venv
-# Activate .venv using the normal command for your shell.
+# Activate .venv for your shell.
 python -m pip install -r scripts/requirements.txt
-# Set DATABASE_URL securely in this shell, using Supabase's direct connection
-# or session-mode pooler URI, with sslmode=require. Never commit the URI.
-python scripts/import_roads.py --pbf /path/to/united-kingdom.osm.pbf --version uk_YYYYMMDD_v1 --activate
+python scripts/import_roads.py --pbf /path/to/united-kingdom.osm.pbf --version uk_YYYYMMDD_v1 --output public/roads
 ```
 
-The version is an immutable label for the exact file and segmentation algorithm. The importer computes and stores its SHA-256, counts shared road nodes using disk-backed SQLite, resolves full geometries with a disk node cache, and streams a `COPY` to Postgres. It fails on missing coordinates. Import and first activation commit together; a failure leaves the prior dataset unchanged. Reusing a version fails instead of silently changing saved geometry. Motorway through residential/service/pedestrian road classes are included; footpaths/cycleways and polygonal highway areas are excluded.
+3. Include the generated `public/roads/manifest.json` and **entire referenced release directory** in your deployment. The generator is an offline build operation, not a Vercel function. No account, network endpoint or additional environment variable is needed to generate or serve it.
 
-If a road is missing in OSM, it cannot be selected; fix the upstream data and prepare a reviewed new release. No geometry is scraped from the basemap or invented.
+The generator preserves the existing segmentation algorithm and versioned way/node IDs. It splits at shared junctions and approximately 250 m using existing vertices, preserves curves/roundabouts, and writes complete sections into every intersected zoom-12 cell. Tile boundaries do not create new IDs. It stores source provenance and SHA-256 in the manifest. It uses disk-backed scratch storage and worker isolation for Windows file-map cleanup.
 
-### Updating the road dataset
+The national extract requires substantial local disk space and generation time. Measure the generated output against your hosting plan's deployment/file limits before deploying. Do not commit multi-gigabyte PBF, scratch files or personal backup files. Large generated assets can be included by your deployment pipeline; Git LFS pointer files alone will not serve geometry. Keep the output release immutable; the tool refuses to overwrite an existing version. Saved highlights contain full geometry snapshots and survive a dataset change, but new IDs from a different release are distinct sections. Review dataset changes before changing releases; no road-name matching silently reassigns progress.
 
-1. Back up Supabase. Import a new pinned release **without** `--activate`.
-2. Review old/new sections and create a CSV with `old_id,new_id`. Each completed old section across all workspaces must map to at least one reviewed target section. Exact correspondence can be proposed from OSM way/node IDs; changed junctions, splits, merges and geometry require review. Do not mark a whole new road merely because its name matches.
-3. Dry-run `python scripts/reconcile_dataset.py --version NEW_VERSION --mapping reviewed.csv`.
-4. After reviewing the mapping, use the same command with `--apply`. It locks workspace writes, snapshots old completion records into a private audit table, moves completions to the reviewed target geometry and atomically activates the new dataset. Unmapped saved sections block activation.
-5. Old roads remain stored. Old Undo revisions are invalidated. Realtime refreshes clients; stale clients cannot complete inactive dataset sections.
+## Export Backup / Import Backup
 
-There is no fuzzy automatic migration that could silently lose or overstate coverage. See the audit table and backups for operational recovery; do not delete old source releases until retention requirements are met.
+**Export Backup** downloads one JSON file containing every completed section in this browser, including stable ID, complete LineString geometry, road name and timestamps. Export waits for outstanding saves. No progress is sent to a server.
 
-## 4. MapTiler configuration and licence
+**Import Backup** merges a version-1 SwiftFix JSON backup with existing progress:
 
-Create a MapTiler Cloud account with a plan permitting your **commercial** usage and sufficient map/geocoding quota. Enable the maps and search APIs, and restrict your browser key to exact production and development origins. Maintain MapTiler/OpenStreetMap attribution. Search results are used transiently for navigation and are not stored in the tracking database.
+- New stable IDs are inserted.
+- Matching IDs with the same geometry are skipped. Existing records/timestamps are kept; progress is never cleared by import, including an empty backup.
+- Duplicate IDs inside a file are deduplicated. Conflicting geometry for one ID rejects the import.
+- The format/version, IDs, dates, finite UK coordinates, geometry shape and size limits are validated before writing. Unsupported or malformed files cause no partial import.
+- The merge is one atomic IndexedDB transaction. Storage/quota failures abort the whole transaction and leave previous records intact.
+- Import reports added/skipped counts, refreshes highlights/counter, and clears the previous Undo action. Undo applies to normal mark/remove actions, not whole-file imports.
 
-The application uses the compliant alternative MapLibre path and an independent ODbL road import. It does not scrape Google, derive road geometry from Google, use public Overpass for production requests, or use the public OSM tile server. [Architecture](docs/ARCHITECTURE.md) explains the licensing decision and the difference between overlay permission and data ownership.
+A backup uses this envelope (road entries are complete GeoJSON Features):
 
-## 5. Deploy to Vercel and GitHub
+```json
+{
+  "format": "swiftfix-leaflet-backup",
+  "version": 1,
+  "exportedAt": "2026-11-01T12:00:00.000Z",
+  "roads": []
+}
+```
 
-1. From **this application directory**, initialise Git and create a private GitHub repository under your organisation. Commit this source and `pnpm-lock.yaml`; exclude `.env.local`, road extracts, caches and dependencies using the supplied `.gitignore`. Push to GitHub. If storing this inside a larger repository, set both CI working directory and Vercel Root Directory to this app directory.
-2. Import that repository in Vercel. Select Next.js, Node.js **24.x**, and the app root. The included `vercel.json` uses `pnpm install --frozen-lockfile` and `pnpm build`. Enable Vercel's Corepack support (`ENABLE_EXPERIMENTAL_COREPACK=1`) if needed so the `packageManager` version is honoured.
-3. Add the four `NEXT_PUBLIC_` environment values above to the desired Vercel environments. They are compiled into the browser bundle; redeploy when they change. Do **not** add `DATABASE_URL` or any service-role secret.
-4. Confirm the Supabase migration, staff memberships and full UK road import are ready. Complete MapTiler billing and origin restrictions.
-5. Deploy. Update Supabase Site URL/redirect allowlist and MapTiler allowed origins to the exact HTTPS deployment/custom domain. Redeploy if build-time values changed. No application code hardcodes a deployment hostname or localhost callback.
-6. Sign in as two authorised staff. Complete/remove a test section, refresh, visit Belfast and Glasgow, return, verify the global count and try Undo. Verify an unauthorised account cannot read or mutate data. Use a dedicated staging database for destructive integration tests.
-7. Enable Supabase backups/PITR appropriate to your plan, monitor storage/query latency and MapTiler quota, and review logs before widening staff access.
+Imports accept at most 50 MiB, 100,000 records and 2,000,000 coordinates, with 2–10,000 coordinates per section. Save downloaded JSON somewhere outside the browser, for example your normal backed-up Documents folder. To use another device, export here, copy the file there and import it there. Later edits on the devices remain separate.
 
-Vercel hosts the Next.js app. Supabase stores roads and completion records. The import is an operational job; it is not a Vercel runtime dependency. Browser map/search requests go directly to MapTiler, with staff tracking traffic going to Supabase under their own JWT.
+IndexedDB is the primary road database. localStorage is not used for progress. Modern browsers keep IndexedDB across normal refreshes and browser restarts, subject to browser settings, available disk space and eviction rules. Private/incognito profiles are temporary. There is no automatic cloud recovery if browser data is lost. The app works without a MapTiler key for backup/import and shows the map configuration message until the key is supplied.
 
-## 6. Tests
+## Deploy to Vercel
+
+1. Push this updated existing application to your GitHub repository. No migration or database setup is required.
+2. Import/update the repository in Vercel. Set the Root Directory to the app directory (repository root when these files are at root).
+3. Select Next.js and Node.js 24.x. The supplied `vercel.json` uses `pnpm install --frozen-lockfile` and `pnpm build`. Use Corepack support if required to honour `packageManager: pnpm@11.25.0`.
+4. Add **only** `NEXT_PUBLIC_MAPTILER_KEY` to the desired Vercel environments. Remove the old database environment variables from Vercel settings; they are no longer read by any app code.
+5. Include the generated UK `public/roads` assets from the step above. Deploy, and restrict the MapTiler key to the final HTTPS origin. Public environment values are compiled at build time; redeploy after key changes.
+6. Export progress before changing domains, browser profiles or devices, then import on the destination. A normal deployment to the same origin does not erase IndexedDB.
+
+There are no server-side secrets and no production authentication redirects. Anyone able to open the website can use their own local tracker. The website does not grant access to another browser's IndexedDB. Preserve MapTiler and OpenStreetMap attribution and comply with their commercial-data/licensing terms. See [architecture](docs/ARCHITECTURE.md).
+
+## Checks
 
 ```sh
 pnpm typecheck
 pnpm test
-python -m unittest discover -s scripts -p test_segments.py
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:e2e
+python -m pip install -r scripts/requirements.txt
+python -m unittest discover -s scripts -p 'test_*.py'
 ```
 
-On Windows with Edge already installed you can set `PLAYWRIGHT_CHANNEL=msedge` before running browser tests. `E2E_BASE_URL` optionally targets an existing deployment. The access smoke test expects a signed-out session and verifies desktop/phone entry layout and that private map data is not presented.
+Browser tests start a local Next.js dev server with a non-production test key, intercept provider requests, and supply clearly synthetic OSM/road fixtures. They use the actual MapLibre renderer and browser IndexedDB. On Windows with Edge installed, set `PLAYWRIGHT_CHANNEL=msedge`. They do not need live map credentials. Do not run another server on port 3000 at the same time. `E2E_BASE_URL` can target an existing configured test deployment instead.
 
-For real RLS/RPC integration tests, install `scripts/requirements.txt`, set `DATABASE_URL` to a **dedicated migrated Supabase test database**, set `SWIFTFIX_TEST_DATABASE=1`, then run:
-
-```sh
-python -m unittest discover -s scripts -p test_database.py
-```
-
-Those tests create synthetic fixture users and geometry inside rolled-back transactions. Never run them on production: they temporarily change the active dataset inside their test transaction. They test real SQL access boundaries, shared writes, uniqueness, snapshot geometry, deletion and conflicting Undo. They are intentionally skipped without explicit test-database configuration.
-
-Map renderer tests use a mocked MapLibre implementation. They verify event wiring, geographical source usage and styling; actual GPU alignment, real touch gestures and provider availability still need the staging acceptance checks in [verification](docs/VERIFICATION.md).
-
-After installing the import requirements, `python -m unittest discover -s scripts -p 'test_*.py'` also runs the actual pyosmium parser/cache worker smoke test. The import worker process releases Windows file mappings before its parent cleans scratch files. Database tests remain explicitly skipped until the dedicated test environment is configured.
+Tests cover persistence, duplicate prevention, removal, Undo, global counts, import validation/merge/rollback, backups, cross-tab revisions, request caching, map gestures, browser refresh/restart, UK navigation and mobile layout. [Verification notes](docs/VERIFICATION.md) distinguish automated fixture checks from real-provider/full-UK acceptance.

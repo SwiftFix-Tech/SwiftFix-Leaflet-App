@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { TrackerStore } from "../lib/tracker-store";
 import { backend, road, second } from "./fixtures";
 const bounds: [number, number, number, number] = [-0.17, 51.58, -0.15, 51.6];
-describe("shared persistence and optimistic transactions", () => {
+describe("local persistence and optimistic transactions", () => {
   it("undo still changes the database and global counter after panning away", async () => {
     const db = backend();
     const s = new TrackerStore({
@@ -105,7 +105,7 @@ describe("shared persistence and optimistic transactions", () => {
     expect(s.snapshot().count).toBe(1);
     expect(db.saved.size).toBe(1);
   });
-  it("staff using one backend see the same map", async () => {
+  it("two tabs using the same browser database see the same map", async () => {
     const db = backend(),
       alice = new TrackerStore(db),
       bob = new TrackerStore(db);
@@ -116,7 +116,7 @@ describe("shared persistence and optimistic transactions", () => {
     await alice.load(bounds, 16, true);
     expect(alice.snapshot().count).toBe(0);
   });
-  it("undo checks revision instead of overwriting another staff change", async () => {
+  it("undo checks revision instead of overwriting another tab's change", async () => {
     const db = backend(),
       s = new TrackerStore(db);
     await s.mark(road, true);

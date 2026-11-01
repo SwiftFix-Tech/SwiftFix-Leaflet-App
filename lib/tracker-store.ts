@@ -74,7 +74,11 @@ export class TrackerStore {
         epoch === this.epoch &&
         !this.state.pending
       )
-        this.update({ ...view, loading: false, error: this.writeError });
+        this.update({
+          ...view,
+          loading: false,
+          error: this.writeError || view.warning || "",
+        });
     } catch (error) {
       if (ticket === this.request && epoch === this.epoch)
         this.update({
@@ -161,4 +165,5 @@ export class TrackerStore {
     return this.mark(action.road, action.completed, action.revision);
   };
   settled = () => this.queue;
+  clearUndo = () => this.update({ undo: null });
 }

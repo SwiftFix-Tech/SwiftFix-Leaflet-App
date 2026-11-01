@@ -10,3 +10,6 @@ playwright-report/
 __pycache__/
 .venv/
 work/
+swiftfix-leaflets-*.json
+public/roads/.building-*/
+public/roads/.manifest-*.json

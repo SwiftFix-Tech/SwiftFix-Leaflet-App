@@ -70,6 +70,7 @@ vi.mock("maplibre-gl", () => {
 import RoadMap from "../components/RoadMap";
 afterEach(cleanup);
 function setup(completed = false) {
+  vi.stubEnv("NEXT_PUBLIC_MAPTILER_KEY", "test-maptiler-key");
   const onMark = vi.fn(),
     onView = vi.fn();
   const view = render(

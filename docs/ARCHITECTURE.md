@@ -1,43 +1,37 @@
-# Architecture and data licensing
+# Local storage architecture
 
-## Map provider decision
+The existing Next.js App Router/React/TypeScript/Tailwind interface and MapLibre/MapTiler mapping remain. The former server-side data path and sign-in flow have been removed.
 
-The implementation uses **MapLibre GL JS + MapTiler Cloud + independently imported OSM road data**. Google Maps is not used. This is the alternative stack requested in the brief; it is a conservative integration choice, **not a claim that OSM overlays are universally prohibited on Google Maps**.
+## Progress: browser IndexedDB
 
-The OSM Foundation's [legal FAQ](https://osmfoundation.org/wiki/Licence_and_Legal_FAQ) distinguishes derivative and collective databases and points to its horizontal-layer guidance. Independently sourced layers can have separate licences. ODbL by itself does not establish a blanket Google-overlay prohibition. Google's [terms](https://cloud.google.com/maps-platform/terms) prohibit scraping and deriving geometry from Google content and impose product-specific usage rules. A Google implementation could be possible after confirming the exact agreement and separation of data. This implementation avoids combining those contracts and provides a complete selectable centreline layer on a MapLibre-compatible provider. It does not include a non-working Google switch.
+`lib/indexed-db.ts` opens `swiftfix-leaflet-tracker` schema version 1. It has three object stores:
 
-[MapTiler documents MapLibre integration and geocoding](https://docs.maptiler.com/cloud/api/geocoding/). Its [Cloud terms](https://www.maptiler.com/terms/cloud/) and [copyright requirements](https://www.maptiler.com/copyright/) apply to the subscription. Use a commercial plan; do not assume a free plan permits this business application. The app uses its hosted streets style and transient UK geocoding. It never extracts road geometry from MapTiler vector tiles, which may contain licensed content beyond OSM.
+- `completed`, keyed by stable segment ID, holds the complete GeoJSON road snapshot, computed bounding box, western-coordinate index and completion/update timestamps.
+- `revisions`, keyed by segment ID, retains mutation tokens even after a deletion. These let Undo reject an intervening change from another tab.
+- `meta` contains a global local revision. The counter uses the object store's exact count, including records outside the current viewport.
 
-Road geometry comes from [Geofabrik's UK OSM extract](https://download.geofabrik.de/europe/united-kingdom.html), explicitly including Northern Ireland, and is licensed under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/). Visible attribution links to [OSM copyright](https://www.openstreetmap.org/copyright). Retain release provenance and the licence with redistributed road databases. If you publicly use/distribute an adapted road database or produced works, evaluate and fulfil ODbL attribution, share-alike and database offer obligations for that use. Private staff access does not remove the underlying licence obligations; do not assume completion/derived geometry can always be published under proprietary terms. Obtain licence advice for a changed distribution model. Tracking access remains private through authentication and RLS.
+IndexedDB serializes read/write transactions across tabs. A mark is idempotent if its ID already exists; removal deletes the completion. Every mutation resolves only after transaction completion. The existing optimistic state controller serializes rapid edits and restores prior UI state on a failed transaction. A fresh authoritative read reconciles ambiguous outcomes. No server is involved.
 
-Sources reviewed during implementation on 31 October 2026. Provider terms and subscription conditions must be checked when provisioning and when changing providers or publishing data.
+Views filter saved geometry by its bounding box, using the west-coordinate index and checking the remaining bounds. The complete geometry snapshot draws at all zooms and can be restored even if the static dataset is unavailable. The global count is independent of the visible highlights. Other tabs on the same origin receive BroadcastChannel invalidation; focus/visibility refresh is a fallback. Other origins, browser profiles and devices have independent data.
 
-## Data flow
+## Backup validation and merge
 
-1. Supabase validates a magic-link session. The client reads its membership under RLS.
-2. At street zoom (14+) a quantized visible bounding box requests complete active road features. Highlight snapshots load at zoom 12+ within a bounded area. Broad UK views show the base map and global count, without downloading the network.
-3. `tracker_view` returns count, workspace revision and the first 750 records of each layer from one database snapshot. `tracker_page` loads subsequent keyset pages. A revision or release mismatch retries the view. Requests are bounded to 12,000 roads/20,000 highlights; denser views show a zoom-in message rather than silently dropping sections.
-4. MapLibre's rendered-feature index narrows candidates. Screen-space distance to complete source polylines picks the closest section; completion features take precedence on duplicate IDs. At grade-separated crossings there is unavoidable visual ambiguity at the crossing pixel: click along the desired road on either side. No whole-road name matching is used.
-5. `set_completed` verifies membership, locks the workspace, resolves canonical geometry and changes one section transactionally. `(workspace_id, road_segment_id)` prevents duplicates. The user ID is audit information, not the owner of a separate map.
-6. Optimistic UI paints immediately; a serialized queue persists rapid edits. A failed write restores prior state, displays the error, then reloads authoritative data. A transport failure can have an ambiguous commit outcome; refreshing resolves actual database state rather than assuming that the server did not commit.
-7. Workspace revision updates invalidate other clients. Polling and focus/reconnect refresh provide a fallback if Realtime is unavailable. Other staff see changes shortly, not a guaranteed instantaneous broadcast.
+`lib/backup.ts` defines the versioned JSON envelope and normalizes all imported data. It rejects non-LineString geometry, empty/oversized IDs, invalid timestamps, non-finite/out-of-UK coordinates, zero-length geometry and conflicting duplicate IDs. Size/record/coordinate limits protect the main thread from unexpectedly large files. Bounds are derived from geometry, never trusted from imported input.
 
-## Identity, snapshots and updates
+The UI validates JSON before opening a write transaction. `importRecords` then checks existing IDs and inserts all new entries in one transaction. Existing matching records keep their metadata; any conflict or storage error aborts everything. Input JSON cannot insert executable code or foreign IndexedDB stores. Road names render as React text. No file is uploaded. Import clears Undo, so it cannot accidentally reverse a change made before the merge.
 
-The stable ID contains a dataset namespace, immutable release version, OSM way ID and direction-independent hash of source node IDs. It is independent of rendering tiles. Junction splitting and source-node subdivision produce sections with their original vertices. OSM identity can change between releases, so the version is intentional.
+## Geometry: static OSM cells
 
-`completed_roads` stores the complete snapshot and release reference. Old releases are never overwritten by import. A separate revision row survives deletion so Undo can detect another staff member's intervention even through remove/re-add cycles. Normal idempotent completion never changes the revision or creates a duplicate; Undo supplies the expected revision.
+MapTiler remains the basemap/search provider. Independently generated OSM roads are served from `/roads/manifest.json` and `/roads/<dataset>/12/<x>/<y>.json.gz`. No geospatial database is needed. The generator reuses source-way/source-node segmentation and immutable versioned IDs, and duplicates **whole sections** into intersected cells. The browser deduplicates by ID; it never treats a clipped vector-tile fragment as an independent road.
 
-Dataset reconciliation requires reviewed mappings for every saved old section and blocks activation when any are missing. The importer and reconciliation scripts are privileged offline tools. They accept credentials through environment variables, never browser bundles. Reconciliation invalidates Undo tokens and preserves old completion records in an admin-only audit table.
+At zoom 14+ the loader requests only visible cells, batches requests four at a time, coalesces concurrent requests and retains a bounded 16-cell cache. Broad zooms show the normal basemap. More than 20 cells or 12,000 in-view sections asks the user to zoom in; geometry is not silently truncated. MapLibre's rendered-feature index narrows candidates, followed by nearest screen-space distance to the source centreline. Mouse movement performs local feature picking only.
 
-## Security and runtime boundaries
+Generated releases are immutable and carry source URL/SHA-256. The app's saved geometry snapshots are independent of subsequent release changes. It does not silently remap IDs by name or erase old highlights. Curves and roundabouts retain their vertices. At an exact grade-separated crossing there can be visual ambiguity; select slightly along the desired road.
 
-All public tables have RLS. Anonymous users receive no table permissions. Members can read shared data; only guarded `SECURITY DEFINER` RPCs can mutate completion state. Definer functions use an empty search path and fully qualified objects. Clients cannot add memberships, activate releases or inject arbitrary completion geometry. No admin credential is needed by Next.js.
+## Licensing and deployment
 
-Next.js renders a generic signed-out shell; no staff data is embedded in HTML or cached publicly by Vercel. Supabase session tokens are browser-managed. Configure production auth redirects, SMTP, allowed MapTiler origins and HTTPS. The application deliberately blocks edits while offline; it has no misleading local-only persistence fallback.
+The [Geofabrik UK extract](https://download.geofabrik.de/europe/united-kingdom.html) includes Northern Ireland. It contains [OpenStreetMap data under ODbL](https://www.openstreetmap.org/copyright). Generated cells are a distributed road dataset: preserve attribution, licence notices and ODbL share-alike/offer obligations. Do not claim exclusive ownership of the underlying road database. The generator records provenance and the app visibly credits OSM.
 
-## Operational limits
+MapTiler's [Cloud terms](https://www.maptiler.com/terms/cloud/) and [copyright requirements](https://www.maptiler.com/copyright/) apply separately to the commercially licensed basemap and search. This implementation does not derive a persistent road dataset from their tiles or use public Overpass as a production server.
 
-PostGIS GiST indexes bound geometry queries; unique/composite indexes serve workspace lookup and keyset paging. Only `moveend`, search selection, realtime invalidation and scheduled refresh load tracking data. Pointer movement only performs local hit testing. Requests for the same viewport coalesce, cached views expire after 15 seconds, and the eight-view LRU is cleared on mutations. Complete section geometry can extend outside the viewport but retains one ID.
-
-The national network belongs in a provisioned database; loading it is a substantial one-time job. Geometry import has not been capacity-benchmarked on a real full UK release here. Memberships are invite-only and there is no public geodata proxy. OSM omissions and source-node geometry quality remain dataset limitations. The application is for distribution tracking, not navigation or route planning.
+Vercel serves Next.js and static geometry. Only `NEXT_PUBLIC_MAPTILER_KEY` is configured externally. No authentication token, database credential or server secret is used. Tracking information is never sent to a cloud database. Search queries and map viewport requests still go to MapTiler; static road-cell requests go to the app's host. Browser storage can be evicted/cleared and is not an automatic backup; the permanent UI warning and JSON export/import make that limitation explicit.
