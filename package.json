@@ -5,7 +5,9 @@
   "packageManager": "pnpm@11.25.0",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-roads.mjs --vercel && next build",
+    "roads:check": "node scripts/check-roads.mjs",
+    "test:deployment": "node --test scripts/check-roads.test.mjs",
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",

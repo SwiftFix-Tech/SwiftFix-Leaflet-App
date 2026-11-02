@@ -1,0 +1,38 @@
+{
+  "dataset": "uk_20261101_v1",
+  "source": "https://download.geofabrik.de/europe/united-kingdom-261101.osm.pbf",
+  "sha256": "7a0786e9217cbb00c3626417d44481c7e64a32ba83f2b8e8585693b7b365468e",
+  "uniqueSections": 9387158,
+  "cellReferences": 9530658,
+  "cellFiles": 7971,
+  "compressedCellBytes": 551301473,
+  "largestCellBytes": 1308920,
+  "roadAssetBytes": 551397572,
+  "roadAssetFiles": 7972,
+  "samples": {
+    "Belfast": {
+      "cell": "1980/1303",
+      "sections": 17237
+    },
+    "Glasgow": {
+      "cell": "1999/1278",
+      "sections": 12754
+    },
+    "Cardiff": {
+      "cell": "2011/1362",
+      "sections": 13825
+    },
+    "Manchester": {
+      "cell": "2022/1325",
+      "sections": 23497
+    },
+    "East Finchley": {
+      "cell": "2046/1360",
+      "sections": 12631
+    }
+  },
+  "github100MiBIndividualFileLimitExceeded": false,
+  "vercelHobby100MBCLISourceBudgetExceededByRoadsAlone": true,
+  "vercelPro1GBCLISourceBudgetExceededByRoadsAlone": false,
+  "vercel15000CLISourceFileBudgetExceededByRoadsAlone": false
+}

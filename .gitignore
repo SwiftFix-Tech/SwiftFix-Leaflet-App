@@ -13,3 +13,6 @@ work/
 swiftfix-leaflets-*.json
 public/roads/.building-*/
 public/roads/.manifest-*.json
+public/roads/manifest.json
+public/roads/*/
+SwiftFix-UK-Roads-*.zip

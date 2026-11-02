@@ -19,7 +19,7 @@ cp .env.example .env.local
 
 On PowerShell use `Copy-Item .env.example .env.local` instead of `cp`.
 
-Only one environment variable is needed:
+The map needs this public environment variable:
 
 ```dotenv
 NEXT_PUBLIC_MAPTILER_KEY=your_maptiler_browser_key
@@ -37,7 +37,9 @@ The map initially opens in East Finchley and can navigate anywhere in England, S
 
 The original application served independent OSM road geometries through its database. Those geometries now live in compressed, versioned static files under `public/roads`. They are fetched by visible area at street zoom (14+), cached, and deduplicated using stable segment IDs. The application never downloads the entire UK network into the browser or extracts roads from MapTiler's licensed basemap tiles.
 
-**This source repository does not contain the full UK road extract.** Generate/deploy the road assets once before using new-road selection. Without them the MapTiler basemap/search still work and existing saved geometry/backups remain available, but the app reports that selectable road data is not installed. There is no simulated data or borough-only fallback.
+**Generated national road assets are distributed separately from source control.** Generate/deploy the road assets once before using new-road selection. See [production road deployment](docs/ROAD-DEPLOYMENT.md) for the static CDN option, size limits, deployment checks and GitHub Desktop steps. Without them the MapTiler basemap/search still work and existing saved geometry/backups remain available, but the app reports that selectable road data is not installed. There is no simulated data or borough-only fallback.
+
+If you received the separate `SwiftFix-UK-Roads-uk_20261101_v1.zip` delivery, use that complete prebuilt release instead of regenerating the UK. Extract its `roads/` directory and follow the upload instructions. Python and the source PBF are not required by Vercel or by the running app.
 
 1. Download a pinned **United Kingdom** `.osm.pbf` from [Geofabrik](https://download.geofabrik.de/europe/united-kingdom.html). The UK extract includes Northern Ireland; a Great Britain-only extract does not.
 2. On a provisioned import machine, install Python 3.12+ and the generator dependency:
@@ -49,9 +51,11 @@ python -m pip install -r scripts/requirements.txt
 python scripts/import_roads.py --pbf /path/to/united-kingdom.osm.pbf --version uk_YYYYMMDD_v1 --output public/roads
 ```
 
-3. Include the generated `public/roads/manifest.json` and **entire referenced release directory** in your deployment. The generator is an offline build operation, not a Vercel function. No account, network endpoint or additional environment variable is needed to generate or serve it.
+3. Run `pnpm roads:check` and measure the generated release. Include `public/roads/manifest.json` and the **entire referenced release directory** in your deployment if it fits your hosting budget. Otherwise upload these public files to a static CDN and set `NEXT_PUBLIC_ROADS_BASE_URL` to its HTTPS directory. This optional setting is necessary for separately hosted national geometry; it is not a database. The generator runs offline, never in a Vercel function. See [detailed steps](docs/ROAD-DEPLOYMENT.md).
 
 The generator preserves the existing segmentation algorithm and versioned way/node IDs. It splits at shared junctions and approximately 250 m using existing vertices, preserves curves/roundabouts, and writes complete sections into every intersected zoom-12 cell. Tile boundaries do not create new IDs. It stores source provenance and SHA-256 in the manifest. It uses disk-backed scratch storage and worker isolation for Windows file-map cleanup.
+
+After the junction pass completes, interrupted imports can continue from durable whole-way checkpoints with `--resume`, using the exact same source, version and work directory. Do not delete staging or rerun a fresh import over it. Legacy staging damaged by a power failure must first be copied/recovered read-only into clean staging. See [safe recovery and resume](docs/ROAD-DEPLOYMENT.md#interruptions-and-safe-resume).
 
 The national extract requires substantial local disk space and generation time. Measure the generated output against your hosting plan's deployment/file limits before deploying. Do not commit multi-gigabyte PBF, scratch files or personal backup files. Large generated assets can be included by your deployment pipeline; Git LFS pointer files alone will not serve geometry. Keep the output release immutable; the tool refuses to overwrite an existing version. Saved highlights contain full geometry snapshots and survive a dataset change, but new IDs from a different release are distinct sections. Review dataset changes before changing releases; no road-name matching silently reassigns progress.
 
@@ -88,8 +92,8 @@ IndexedDB is the primary road database. localStorage is not used for progress. M
 1. Push this updated existing application to your GitHub repository. No migration or database setup is required.
 2. Import/update the repository in Vercel. Set the Root Directory to the app directory (repository root when these files are at root).
 3. Select Next.js and Node.js 24.x. The supplied `vercel.json` uses `pnpm install --frozen-lockfile` and `pnpm build`. Use Corepack support if required to honour `packageManager: pnpm@11.25.0`.
-4. Add **only** `NEXT_PUBLIC_MAPTILER_KEY` to the desired Vercel environments. Remove the old database environment variables from Vercel settings; they are no longer read by any app code.
-5. Include the generated UK `public/roads` assets from the step above. Deploy, and restrict the MapTiler key to the final HTTPS origin. Public environment values are compiled at build time; redeploy after key changes.
+4. Add `NEXT_PUBLIC_MAPTILER_KEY` to the desired Vercel environments. If roads are hosted separately, also set `NEXT_PUBLIC_ROADS_BASE_URL` to the public static directory URL. Remove the old database environment variables from Vercel settings; they are no longer read by any app code.
+5. Include the generated UK `public/roads` assets or upload the complete release to the configured CDN first. Vercel builds now fail early if road data is missing; see `pnpm roads:check`. Deploy, and restrict the MapTiler key to the final HTTPS origin. Public environment values are compiled at build time; redeploy after key changes.
 6. Export progress before changing domains, browser profiles or devices, then import on the destination. A normal deployment to the same origin does not erase IndexedDB.
 
 There are no server-side secrets and no production authentication redirects. Anyone able to open the website can use their own local tracker. The website does not grant access to another browser's IndexedDB. Preserve MapTiler and OpenStreetMap attribution and comply with their commercial-data/licensing terms. See [architecture](docs/ARCHITECTURE.md).
@@ -99,6 +103,7 @@ There are no server-side secrets and no production authentication redirects. Any
 ```sh
 pnpm typecheck
 pnpm test
+pnpm test:deployment
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:e2e

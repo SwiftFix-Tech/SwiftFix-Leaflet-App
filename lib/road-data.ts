@@ -1,4 +1,5 @@
 import { RequestCache } from "./cache";
+import { roadSource } from "./road-source";
 import { intersects, roadBounds, validateRoad } from "./backup";
 import { emptyRoads, type Bounds, type Roads } from "./types";
 
@@ -28,16 +29,19 @@ export function visibleCells(bounds: Bounds): string[] {
 export class StaticRoads {
   private manifest?: Promise<Manifest>;
   private cache = new RequestCache<Roads>(16, 10 * 60_000);
-  constructor(private fetcher: typeof fetch = (...args) => fetch(...args)) {}
+  constructor(
+    private fetcher: typeof fetch = (...args) => fetch(...args),
+    private source = roadSource(process.env.NEXT_PUBLIC_ROADS_BASE_URL),
+  ) {}
   private getManifest() {
     if (!this.manifest)
-      this.manifest = this.fetcher("/roads/manifest.json", {
+      this.manifest = this.fetcher(`${this.source}/manifest.json`, {
         cache: "no-cache",
       })
         .then(async (response) => {
           if (!response.ok)
             throw new Error(
-              "Selectable UK road data is not installed. Generate public/roads as described in README. Saved highlights and backups remain available.",
+              "Selectable UK road data is unavailable. Check the deployed road assets or road CDN configuration described in README. Saved highlights and backups remain available.",
             );
           const doc = (await response.json()) as Manifest;
           if (
@@ -75,7 +79,7 @@ export class StaticRoads {
           requested.slice(i, i + 4).map((cell) =>
             this.cache.get(`${manifest.dataset}/${cell}`, async () => {
               const response = await this.fetcher(
-                `/roads/${manifest.dataset}/12/${cell}.json.gz`,
+                `${this.source}/${manifest.dataset}/12/${cell}.json.gz`,
               );
               if (!response.ok)
                 throw new Error(

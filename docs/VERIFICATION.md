@@ -1,26 +1,30 @@
-# Verification — local IndexedDB edition
+# Verification — UK road release and IndexedDB edition
 
-Verification date: 1 November 2026.
+Verification date: 2 November 2026.
 
-## Application and storage checks
+## National data and interruption recovery
 
-- **37 Vitest tests passed**: the existing optimistic state controller, save/remove/Undo, rollback, rapid edits, offscreen Undo, cache coalescing, map event wiring and mobile gesture logic; the new IndexedDB transaction layer, reopen persistence, duplicate prevention, cross-tab revision conflicts, exact browser-wide count, backup export/restore, merge validation, atomic conflict rollback and quota-error rollback; and static geometry loading/caching.
-- The IndexedDB unit suite uses `fake-indexeddb`, a test implementation of the real IndexedDB API. It verifies object-store and transaction behavior instead of replacing persistence with an in-memory application backend. Existing state-controller tests also retain their focused mock backend.
-- **6 Python tests passed**: original segmentation checks, actual pyosmium parsing with disk-backed locations, and the full static-generator worker pipeline with curved geometry, Belfast coordinates, cell-boundary duplicate IDs, immutable versions and scratch cleanup.
-- **12 Playwright browser checks passed, with 2 platform-specific skips**, using Microsoft Edge/Chromium with the actual MapLibre renderer and real browser IndexedDB. Provider responses and road assets are synthetic fixtures, intercepted in the test runner; no test-only data is included in production road assets.
+The original import was interrupted by the laptop shutdown. Its legacy `journal_mode=OFF` cells table was damaged; no completed manifest/release had been published. The complete junction table passed integrity checking. The original staging was opened read-only and preserved.
 
-## Browser acceptance scope
+Recovery retained 29,303,280 road-node reference counts and 3,710,028 unique sections from a contiguous, ordered, complete-way prefix. The uncertain tail was replayed after source way 136737254. The download and junction pass were not restarted. The pinned source MD5 still matched Geofabrik; source SHA-256 is recorded in the release audit.
 
-The Playwright suite covers desktop and phone entry layout, permanent storage warning, actual rendered-road marking, repeated clicks, refresh and page reopening, context-menu deletion, persistent Undo, all-road JSON download, duplicate merge, restore after deletion, rejection of malformed JSON, Belfast/East Finchley navigation, zoom alignment, independent browser profiles, native touch tap/hold removal, and closing/reopening a persistent browser profile. Platform-specific tests deliberately skip desktop touch and duplicate phone browser-profile restart checks.
+The finished `uk_20261101_v1` release contains **9,387,158 unique sections in 7,971 cells**. Every gzip/JSON cell, feature, ID and coordinate was audited, and the distinct count matches the manifest. Sample cells in East Finchley, Manchester, Glasgow, Cardiff and Belfast are present. Compressed cells total **551,301,473 bytes**; the largest is **1,308,920 bytes**. See [release audit](ROAD-RELEASE.json).
 
-During these checks a pre-existing CSS conflict was fixed: MapLibre's `position: relative` was overriding the application's full-map container, clipping the canvas and intercepting clicks. The selector is now specific enough to preserve absolute positioning. Road menus also render above backup notifications so notifications cannot block removal on smaller screens.
+The separate road ZIP contains 7,973 files (cells, manifest and licence README), is 552,658,113 bytes, and passed archive CRC verification. SHA-256: `dbf724a8d3ee5bde5c6961dd8536d7a9d430cc7f046cf36a96e048a61e84fd84`. It excludes PBF, SQLite staging, application source and personal progress. It must not be committed to GitHub as one oversized file.
 
-## External acceptance still required
+## Application checks
 
-The full national UK extract is not present in this checkout and has not been generated or capacity-benchmarked here. The generator was tested end-to-end on synthetic OSM fixtures, including Northern Ireland coordinates. Before live new-road selection, generate and deploy the complete UK static assets as described in README, including the release referenced by the manifest.
+- Frozen-lockfile installation, standalone TypeScript checking and the Next.js 16.4.3 production build passed. The final build used `VERCEL=1`, so the missing-asset guard checked the full local release. TypeScript checks remain enabled.
+- **38 Vitest tests passed** for IndexedDB persistence, duplicate prevention, backup validation/merge/rollback, exact counts, optimistic operations, Undo, error rollback, cache coalescing and map/gesture wiring.
+- **2 Node deployment tests passed** for missing local assets, complete releases, public HTTPS/CORS configuration and invalid remote responses.
+- **9 Python tests passed**, including segmentation, actual pyosmium parsing, cell boundaries, immutable releases, full worker generation, national audit behavior, read-only prefix recovery, source-hash rejection, safe resume, exact reuse of closed cells, regeneration of truncated cells and separate archive packaging.
+- **22 Playwright checks passed, with 2 platform-specific skips**, against the production build in Edge/Chromium. The regular checks cover refresh and full browser restart, marking, duplicate clicks, right-click removal, mobile tap/hold, Undo, global counts, backups/restore, separate profiles and UK navigation.
+- Ten national acceptance checks exercise actual generated road files in East Finchley, Manchester, Glasgow, Cardiff and Belfast on desktop and phone layouts. Road requests are not intercepted. They verify exact saved IDs/geometry, persistence, removal, and rendered blue pixels appearing/disappearing around the selected road.
 
-No live MapTiler account/key, paid subscription, origin restrictions or real-provider road alignment was validated. Before rollout, configure the single public MapTiler key and check actual road selection at curves, parallel roads, roundabouts and intersections in England, Scotland, Wales and Northern Ireland. At an exact grade-separated crossing, click a little along the intended road to resolve overlapping visual geometry.
+The first browser run exposed a new test refreshing during an optimistic removal. The test now waits for the confirmed IndexedDB commit before refreshing. An isolated browser-startup timeout passed unchanged on rerun; the subsequent complete suite passed. The strengthened rendering checks were then rerun separately. No application storage/map code was changed to satisfy these checks.
 
-Mobile tests emulate a phone in Chromium and dispatch actual browser touch events. Physical iPhone Safari/Android testing remains useful for platform gesture/storage behavior. IndexedDB persistence is subject to browser storage policies, cleared site data, private-browsing lifecycle, available disk space and eviction; backups remain essential. Changing the website origin uses a separate browser database.
+## Scope of external acceptance
 
-Production deployment needs no database credentials, migrations, sign-in or replacement cloud storage. The website stores no progress in localStorage and sends no tracking records to a database service.
+MapTiler style/search responses are intercepted in browser tests with a public test key; production road files and real browser IndexedDB are used for national checks. No live MapTiler account/billing/origin restrictions, external road CDN or Vercel deployment was tested. Configure the existing real key and upload the audited static release before redeploying. Follow [deployment instructions](ROAD-DEPLOYMENT.md).
+
+Physical Safari/iPhone/Android checks remain separate from Chromium phone emulation. Browser storage remains subject to cleared site data, private browsing and storage eviction. Keep the same app origin and export backups before domain/profile/device changes. No progress is uploaded to a database, and the IndexedDB schema, backup format and existing UK MapLibre controls remain unchanged.

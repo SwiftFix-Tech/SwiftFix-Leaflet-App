@@ -29,6 +29,9 @@ class StaticGenerationTest(unittest.TestCase):
             manifest = json.loads(before)
             self.assertEqual(manifest['segmentCount'], 2)
             self.assertEqual(len(manifest['sha256']), 64)
+            sizes = [p.stat().st_size for p in (root / 'roads' / 'test_release').rglob('*.gz')]
+            self.assertEqual(manifest['compressedBytes'], sum(sizes))
+            self.assertEqual(manifest['largestCellBytes'], max(sizes))
             grouped = {}
             for cell in manifest['cells']:
                 with gzip.open(root / 'roads' / 'test_release' / '12' / f'{cell}.json.gz', 'rt', encoding='utf-8') as file:
